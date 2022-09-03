@@ -106,7 +106,11 @@ const IncidentListItem = ({ alert }: { alert: IncidentItem }) => (
       </ActionPanel>
     }
     icon={{
-      source: Icon.Circle,
+      source: {
+        resolved: Icon.CheckCircle,
+        acknowledged: Icon.Alarm,
+        triggered: Icon.AlarmRinging,
+      }[alert.status],
       tintColor: {
         resolved: Color.Green,
         acknowledged: Color.Yellow,
