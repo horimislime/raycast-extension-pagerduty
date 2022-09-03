@@ -1,5 +1,5 @@
 import { Action, ActionPanel, Color, getPreferenceValues, Icon, List, showToast, Toast } from "@raycast/api";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { format, parseISO } from "date-fns";
 import { convertToTimeZone } from 'date-fns-timezone';
 import axios from "axios";
@@ -12,8 +12,12 @@ interface ListIncidentsResponse {
   incidents: IncidentItem[];
 }
 
+type IncidentStatus = "triggered" | "acknowledged" | "resolved";
+type Filter = "all" | IncidentStatus;
+
 interface State {
   items?: IncidentItem[];
+  filter?: Filter;
   error?: Error;
 }
 
@@ -52,6 +56,14 @@ export default function Command() {
   const preference = getPreferenceValues<Preference>();
   const [state, setState] = useState<State>({});
 
+  const filterIncidents = useCallback(() => {
+    if (state.filter === undefined || state.filter === 'all') {
+      return state.items;
+    } else {
+      return state.items?.filter((item) => item.status === state.filter);
+    }
+  }, [state.items, state.filter]);
+
   useEffect(() => {
     async function fetchIncidents() {
       try {
@@ -82,8 +94,21 @@ export default function Command() {
   }
 
   return (
-    <List isLoading={!state.items && !state.error}>
-      {state.items?.map((alert) => (
+    <List 
+      isLoading={!state.items && !state.error}
+      searchBarAccessory={
+        <List.Dropdown
+          tooltip="Filter incidents by status"
+          value={state.filter}
+          onChange={(newValue) => setState((previous) => ({ ...previous, filter: newValue as Filter }))}
+        >
+          <List.Dropdown.Item title="All" value={"all"} />
+          <List.Dropdown.Item title="Triggered" value={"triggered"} />
+          <List.Dropdown.Item title="Acknowledged" value={"acknowledged"} />
+          <List.Dropdown.Item title="Resolved" value={"resolved"} />
+        </List.Dropdown>
+      }>
+      {filterIncidents()?.map((alert) => (
         <IncidentListItem key={alert.id} alert={alert} />
       ))}
     </List>
