@@ -98,7 +98,7 @@ export default function Command() {
 const IncidentListItem = ({ alert }: { alert: IncidentItem }) => (
   <List.Item
     title={`#${alert.incident_number}: ${alert.title}`}
-    subtitle={format(convertToTimeZone(parseISO(alert.created_at), { timeZone: 'Asia/Tokyo'}), 'yyyy/MM/dd hh:mm')}
+    accessories={[{text: format(convertToTimeZone(parseISO(alert.created_at), { timeZone: 'Asia/Tokyo'}), 'yyyy/MM/dd hh:mm:ss')}]}
     actions={
       // <Actions item={alert}/>
       <ActionPanel>
