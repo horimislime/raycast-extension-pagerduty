@@ -13,13 +13,34 @@
   "commands": [
     {
       "name": "index",
-      "title": "pagerduty",
+      "title": "View PagerDuty Incidents",
       "description": "Template for showing a static list and a detail view",
       "mode": "view"
     }
   ],
+  "preferences": [
+    {
+      "name": "apiKey",
+      "type": "password",
+      "required": true,
+      "title": "API Key",
+      "placeholder": "PagerDuty API key",
+      "description": "Generate your API key on User Settings page. For more detail, see https://developer.pagerduty.com/docs/ZG9jOjExMDI5NTUx-authentication"
+    },
+    {
+      "name": "userId",
+      "type": "textfield",
+      "required": false,
+      "title": "User ID",
+      "placeholder": "User ID of your PagerDuty account",
+      "description": "Configure this to filter incidents by acknowledger"
+    }
+  ],
   "dependencies": {
-    "@raycast/api": "^1.39.2"
+    "@raycast/api": "^1.39.2",
+    "axios": "^0.27.2",
+    "date-fns": "^2.29.2",
+    "date-fns-timezone": "^0.1.4"
   },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^5.0.0",
