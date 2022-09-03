@@ -32,15 +32,10 @@ function Actions(props: { item: IncidentItem }) {
   return (
     <ActionPanel title={props.item.title}>
       <ActionPanel.Section>
-        {props.item.html_url && <Action.OpenInBrowser url={props.item.html_url} />}
-        {props.item.id && (
-          <Action.OpenInBrowser
-            url={props.item.id}
-            title="Open Incident in Browser"
-          />
-        )}
-      </ActionPanel.Section>
-      <ActionPanel.Section>
+        <Action.OpenInBrowser 
+          url={props.item.html_url} 
+          title="Open Incident in Browser"
+        />
         {props.item.html_url && (
           <Action.CopyToClipboard
             content={props.item.html_url}
@@ -100,10 +95,7 @@ const IncidentListItem = ({ alert }: { alert: IncidentItem }) => (
     title={`#${alert.incident_number}: ${alert.title}`}
     accessories={[{text: format(convertToTimeZone(parseISO(alert.created_at), { timeZone: 'Asia/Tokyo'}), 'yyyy/MM/dd hh:mm:ss')}]}
     actions={
-      // <Actions item={alert}/>
-      <ActionPanel>
-        <Action.OpenInBrowser url={alert.html_url}></Action.OpenInBrowser>
-      </ActionPanel>
+      <Actions item={alert}/>
     }
     icon={{
       source: {
