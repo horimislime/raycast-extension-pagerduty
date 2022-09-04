@@ -12,7 +12,6 @@ import {
 } from "@raycast/api";
 import { useCallback, useEffect, useState } from "react";
 import { format, parseISO } from "date-fns";
-import { convertToTimeZone } from "date-fns-timezone";
 import axios from "axios";
 import { setTimeout } from "timers/promises";
 
@@ -29,13 +28,6 @@ interface ListIncidentsResponse {
 }
 
 type IncidentStatus = "triggered" | "acknowledged" | "resolved";
-type Filter = "all" | IncidentStatus;
-
-interface State {
-  items?: IncidentItem[];
-  filter?: Filter;
-  error?: Error;
-}
 
 interface IncidentItem {
   id: string;
@@ -48,15 +40,34 @@ interface IncidentItem {
   html_url: string;
 }
 
-function ResolveIcidentAction(props: { onResolve: (note: string | undefined) => void }) {
-  async function handleSubmit(values: { note: string | undefined }) {
-    props.onResolve(values.note);
-  }
+type Filter = "all" | IncidentStatus;
+
+interface State {
+  items?: IncidentItem[];
+  filter?: Filter;
+  error?: Error;
+}
+
+const pagerDutyClient = (() => {
+  const preference = getPreferenceValues<Preference>();
+  return axios.create({
+    baseURL: "https://api.pagerduty.com",
+    headers: {
+      Authorization: `Token token=${preference.apiKey}`,
+    },
+  });
+})();
+
+function ResolveIcidentForm(props: { onResolve: (note: string | undefined) => void }) {
   return (
     <Form
       actions={
         <ActionPanel>
-          <Action.SubmitForm icon={Icon.Text} title="Resolve Incident" onSubmit={handleSubmit} />
+          <Action.SubmitForm
+            icon={Icon.Text}
+            title="Resolve Incident"
+            onSubmit={(values) => props.onResolve(values.note)}
+          />
         </ActionPanel>
       }
     >
@@ -78,7 +89,6 @@ function UpdateIncidentStatusAction(props: {
     newStatus: IncidentStatus,
     note: string | undefined = undefined
   ) {
-    const preference = getPreferenceValues<Preference>();
     showToast(Toast.Style.Animated, "Updating...");
 
     const requestBody = note
@@ -92,15 +102,8 @@ function UpdateIncidentStatusAction(props: {
           status: newStatus,
         };
 
-    const pd = axios.create({
-      baseURL: "https://api.pagerduty.com",
-      headers: {
-        Authorization: `Token token=${preference.apiKey}`,
-      },
-    });
-    console.log(`newStatus:${newStatus} note:${note}`);
     try {
-      const { data: response } = await pd.put<UpdateIncidentResponse>(`/incidents/${item.id}`, {
+      const { data: response } = await pagerDutyClient.put<UpdateIncidentResponse>(`/incidents/${item.id}`, {
         incident: requestBody,
       });
       showToast(
@@ -115,38 +118,38 @@ function UpdateIncidentStatusAction(props: {
     }
   }
 
+  const resolveAction = (
+    <Action.Push
+      key={props.item.id}
+      title={"Resolve Incident"}
+      shortcut={{ modifiers: ["cmd", "shift"], key: "r" }}
+      target={<ResolveIcidentForm onResolve={(note) => onUpdateIncidentStatus(props.item, "resolved", note)} />}
+    />
+  );
+
+  const acknowledgeAction = (
+    <Action
+      title={"Acknowledge Incident"}
+      shortcut={{ modifiers: ["cmd", "shift"], key: "a" }}
+      onAction={() => onUpdateIncidentStatus(props.item, "acknowledged")}
+    />
+  );
+
   if (props.item.status === "resolved") {
     return <></>;
   } else if (props.item.status === "acknowledged") {
-    return (
-      <Action.Push
-        key={props.item.id}
-        title={"Resolve Incident"}
-        shortcut={{ modifiers: ["cmd", "shift"], key: "r" }}
-        target={<ResolveIcidentAction onResolve={(note) => onUpdateIncidentStatus(props.item, "resolved", note)} />}
-      />
-    );
+    return resolveAction;
   } else {
     return (
       <>
-        <Action
-          title={"Acknowledge Incident"}
-          shortcut={{ modifiers: ["cmd", "shift"], key: "a" }}
-          onAction={() => onUpdateIncidentStatus(props.item, "acknowledged")}
-        />
-        <Action.Push
-          key={props.item.id}
-          title={"Resolve Incident"}
-          shortcut={{ modifiers: ["cmd", "shift"], key: "r" }}
-          target={<ResolveIcidentAction onResolve={(note) => onUpdateIncidentStatus(props.item, "resolved", note)} />}
-        />
+        {acknowledgeAction}
+        {resolveAction}
       </>
     );
   }
 }
 
 export default function Command() {
-  const preference = getPreferenceValues<Preference>();
   const [state, setState] = useState<State>({});
   const { pop } = useNavigation();
 
@@ -176,16 +179,11 @@ export default function Command() {
   useEffect(() => {
     async function fetchIncidents() {
       try {
-        const pd = axios.create({
-          baseURL: "https://api.pagerduty.com",
-          headers: {
-            Authorization: `Token token=${preference.apiKey}`,
-          },
+        const { data: response } = await pagerDutyClient.get<ListIncidentsResponse>("/incidents", {
           params: {
             sort_by: "created_at:desc",
           },
         });
-        const { data: response } = await pd.get<ListIncidentsResponse>("/incidents");
         setState({ items: response.incidents });
       } catch (error) {
         setState({
@@ -193,7 +191,6 @@ export default function Command() {
         });
       }
     }
-
     fetchIncidents();
   }, []);
 
@@ -223,10 +220,7 @@ export default function Command() {
           title={`#${alert.incident_number}: ${alert.title}`}
           accessories={[
             {
-              text: format(
-                convertToTimeZone(parseISO(alert.created_at), { timeZone: "Asia/Tokyo" }),
-                "yyyy/MM/dd hh:mm:ss"
-              ),
+              text: format(parseISO(alert.created_at), "yyyy/MM/dd HH:mm:ss"),
             },
           ]}
           actions={
