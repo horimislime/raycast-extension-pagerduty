@@ -58,25 +58,120 @@ const pagerDutyClient = (() => {
   });
 })();
 
-function ResolveIcidentForm(props: { onResolve: (note: string | undefined) => void }) {
+export default function Command() {
+  const [state, setState] = useState<State>({});
+  const { pop } = useNavigation();
+
+  const filterIncidents = useCallback(() => {
+    if (state.filter === undefined || state.filter === "all") {
+      return state.items;
+    } else {
+      return state.items?.filter((item) => item.status === state.filter);
+    }
+  }, [state.items, state.filter]);
+
+  async function updateIncident(id: string, newStatus: IncidentStatus) {
+    const items = state.items ?? [];
+    const index = items.findIndex((i) => i.id === id);
+    if (index < 0) {
+      showToast(Toast.Style.Failure, "Failed to update incident status.");
+      return;
+    }
+
+    items[index].status = newStatus;
+    setState({ items: items });
+
+    if (newStatus === "resolved") {
+      await setTimeout(600);
+      pop();
+    }
+  }
+
+  useEffect(() => {
+    async function fetchIncidents() {
+      try {
+        const { data: response } = await pagerDutyClient.get<ListIncidentsResponse>("/incidents", {
+          params: {
+            sort_by: "created_at:desc",
+          },
+        });
+        setState({ items: response.incidents });
+      } catch (error) {
+        setState({
+          error: error instanceof Error ? error : new Error("Something went wrong"),
+        });
+      }
+    }
+    fetchIncidents();
+  }, []);
+
+  if (state.error) {
+    showToast(Toast.Style.Failure, state.error.message);
+  }
+
   return (
-    <Form
-      actions={
-        <ActionPanel>
-          <Action.SubmitForm
-            icon={Icon.Text}
-            title="Resolve Incident"
-            onSubmit={(values) => props.onResolve(values.note)}
-          />
-        </ActionPanel>
+    <List
+      isLoading={!state.items && !state.error}
+      searchBarAccessory={
+        <List.Dropdown
+          tooltip="Filter Incidents by Status"
+          value={state.filter}
+          onChange={(newValue) => setState((previous) => ({ ...previous, filter: newValue as Filter }))}
+        >
+          <List.Dropdown.Item title="All" value={"all"} />
+          <List.Dropdown.Item title="Triggered" value={"triggered"} />
+          <List.Dropdown.Item title="Acknowledged" value={"acknowledged"} />
+          <List.Dropdown.Item title="Resolved" value={"resolved"} />
+        </List.Dropdown>
       }
     >
-      <Form.TextArea
-        id="note"
-        title="Resolution Note"
-        placeholder="(Optional) Put some note to describe what you did to resolve this incident."
-      />
-    </Form>
+      {filterIncidents()?.map((incident) => (
+        <List.Item
+          key={incident.id}
+          title={`#${incident.incident_number}: ${incident.title}`}
+          accessories={[
+            {
+              text: format(parseISO(incident.created_at), "yyyy/MM/dd HH:mm:ss"),
+            },
+          ]}
+          actions={
+            <ActionPanel title={incident.title}>
+              <ActionPanel.Section>
+                <Action.OpenInBrowser
+                  url={incident.html_url}
+                  title="Open Incident in Browser"
+                  shortcut={{ key: "enter", modifiers: [] }}
+                />
+                <Action.CopyToClipboard
+                  content={incident.html_url}
+                  title="Copy Link to Clipboard"
+                  shortcut={{ modifiers: ["cmd", "shift"], key: "c" }}
+                />
+              </ActionPanel.Section>
+              {incident.status === "resolved" ? (
+                <></>
+              ) : (
+                <ActionPanel.Section>
+                  <UpdateIncidentStatusAction item={incident} onUpdate={updateIncident} />
+                </ActionPanel.Section>
+              )}
+            </ActionPanel>
+          }
+          icon={{
+            source: {
+              resolved: Icon.CheckCircle,
+              acknowledged: Icon.Alarm,
+              triggered: Icon.AlarmRinging,
+            }[incident.status],
+            tintColor: {
+              resolved: Color.Green,
+              acknowledged: Color.Yellow,
+              triggered: Color.Red,
+            }[incident.status],
+          }}
+        ></List.Item>
+      ))}
+    </List>
   );
 }
 
@@ -122,7 +217,7 @@ function UpdateIncidentStatusAction(props: {
       key={props.item.id}
       title={"Resolve Incident"}
       shortcut={{ modifiers: ["cmd", "shift"], key: "r" }}
-      target={<ResolveIcidentForm onResolve={(note) => onUpdateIncidentStatus(props.item, "resolved", note)} />}
+      target={<ResolveIcidentForm onSubmit={(note) => onUpdateIncidentStatus(props.item, "resolved", note)} />}
     />
   );
 
@@ -148,119 +243,24 @@ function UpdateIncidentStatusAction(props: {
   }
 }
 
-export default function Command() {
-  const [state, setState] = useState<State>({});
-  const { pop } = useNavigation();
-
-  const filterIncidents = useCallback(() => {
-    if (state.filter === undefined || state.filter === "all") {
-      return state.items;
-    } else {
-      return state.items?.filter((item) => item.status === state.filter);
-    }
-  }, [state.items, state.filter]);
-
-  async function updateIncident(id: string, newStatus: IncidentStatus) {
-    const items = state.items ?? [];
-    const index = items.findIndex((i) => i.id === id);
-    if (index < 0) {
-      showToast(Toast.Style.Failure, "Failed to update incident status.");
-      return;
-    }
-
-    items[index].status = newStatus;
-    setState({ items: items });
-
-    if (newStatus === 'resolved') {
-      await setTimeout(600);
-      pop();
-    }
-  }
-
-  useEffect(() => {
-    async function fetchIncidents() {
-      try {
-        const { data: response } = await pagerDutyClient.get<ListIncidentsResponse>("/incidents", {
-          params: {
-            sort_by: "created_at:desc",
-          },
-        });
-        setState({ items: response.incidents });
-      } catch (error) {
-        setState({
-          error: error instanceof Error ? error : new Error("Something went wrong"),
-        });
-      }
-    }
-    fetchIncidents();
-  }, []);
-
-  if (state.error) {
-    showToast(Toast.Style.Failure, state.error.message);
-  }
-
+function ResolveIcidentForm(props: { onSubmit: (note: string | undefined) => void }) {
   return (
-    <List
-      isLoading={!state.items && !state.error}
-      searchBarAccessory={
-        <List.Dropdown
-          tooltip="Filter incidents by status"
-          value={state.filter}
-          onChange={(newValue) => setState((previous) => ({ ...previous, filter: newValue as Filter }))}
-        >
-          <List.Dropdown.Item title="All" value={"all"} />
-          <List.Dropdown.Item title="Triggered" value={"triggered"} />
-          <List.Dropdown.Item title="Acknowledged" value={"acknowledged"} />
-          <List.Dropdown.Item title="Resolved" value={"resolved"} />
-        </List.Dropdown>
+    <Form
+      actions={
+        <ActionPanel>
+          <Action.SubmitForm
+            icon={Icon.Text}
+            title="Resolve Incident"
+            onSubmit={(values) => props.onSubmit(values.note)}
+          />
+        </ActionPanel>
       }
     >
-      {filterIncidents()?.map((alert) => (
-        <List.Item
-          key={alert.id}
-          title={`#${alert.incident_number}: ${alert.title}`}
-          accessories={[
-            {
-              text: format(parseISO(alert.created_at), "yyyy/MM/dd HH:mm:ss"),
-            },
-          ]}
-          actions={
-            <ActionPanel title={alert.title}>
-              <ActionPanel.Section>
-                <Action.OpenInBrowser
-                  url={alert.html_url}
-                  title="Open Incident in Browser"
-                  shortcut={{ key: "enter", modifiers: [] }}
-                />
-                <Action.CopyToClipboard
-                  content={alert.html_url}
-                  title="Copy Link"
-                  shortcut={{ modifiers: ["cmd", "shift"], key: "c" }}
-                />
-              </ActionPanel.Section>
-              {alert.status === "resolved" ? (
-                <></>
-              ) : (
-                <ActionPanel.Section>
-                  <UpdateIncidentStatusAction item={alert} onUpdate={updateIncident} />
-                </ActionPanel.Section>
-              )}
-            </ActionPanel>
-          }
-          icon={{
-            source: {
-              resolved: Icon.CheckCircle,
-              acknowledged: Icon.Alarm,
-              triggered: Icon.AlarmRinging,
-            }[alert.status],
-            tintColor: {
-              resolved: Color.Green,
-              acknowledged: Color.Yellow,
-              triggered: Color.Red,
-            }[alert.status],
-          }}
-        ></List.Item>
-      ))}
-    </List>
+      <Form.TextArea
+        id="note"
+        title="Resolution Note"
+        placeholder="(Optional) Put some note to describe what you did to resolve this incident."
+      />
+    </Form>
   );
 }
