@@ -1,8 +1,20 @@
-import { Action, ActionPanel, Color, Form, getPreferenceValues, Icon, List, showToast, Toast } from "@raycast/api";
+import {
+  Action,
+  ActionPanel,
+  Color,
+  Form,
+  getPreferenceValues,
+  Icon,
+  List,
+  showToast,
+  Toast,
+  useNavigation,
+} from "@raycast/api";
 import { useCallback, useEffect, useState } from "react";
 import { format, parseISO } from "date-fns";
 import { convertToTimeZone } from "date-fns-timezone";
 import axios from "axios";
+import { setTimeout } from "timers/promises";
 
 interface Preference {
   apiKey: string | null | undefined;
@@ -36,67 +48,6 @@ interface IncidentItem {
   html_url: string;
 }
 
-function Actions(props: { item: IncidentItem }) {
-  return (
-    <ActionPanel title={props.item.title}>
-      <ActionPanel.Section>
-        <Action.OpenInBrowser
-          url={props.item.html_url}
-          title="Open Incident in Browser"
-          shortcut={{ key: "enter", modifiers: [] }}
-        />
-        <Action.CopyToClipboard
-          content={props.item.html_url}
-          title="Copy Link"
-          shortcut={{ modifiers: ["cmd", "shift"], key: "c" }}
-        />
-      </ActionPanel.Section>
-      {props.item.status === "resolved" ? (
-        <></>
-      ) : (
-        <ActionPanel.Section>
-          <UpdateIncidentStatusAction item={props.item} />
-        </ActionPanel.Section>
-      )}
-    </ActionPanel>
-  );
-}
-
-async function onUpdateIncidentStatus(
-  item: IncidentItem,
-  newStatus: IncidentStatus,
-  note: string | undefined = undefined
-) {
-  const preference = getPreferenceValues<Preference>();
-  showToast(Toast.Style.Animated, "Updating...");
-
-  const requestBody = note
-  ? {
-      type: "incident",
-      status: newStatus,
-      note: note,
-    }
-  : {
-      type: "incident",
-      status: newStatus,
-    };
-
-  const pd = axios.create({
-    baseURL: "https://api.pagerduty.com",
-    headers: {
-      Authorization: `Token token=${preference.apiKey}`,
-    }
-  });
-  console.log(`newStatus:${newStatus} note:${note}`);
-  try {
-    const { data: response } = await pd.put<UpdateIncidentResponse>(`/incidents/${item.id}`, { incident: requestBody });
-    showToast(Toast.Style.Success, `Incident #${response.incident.incident_number} has been ${response.incident.status}.`);
-  } catch (error) {
-    console.log(error);
-    showToast(Toast.Style.Failure, error instanceof Error ? error.message : "Failed to update incident.");
-  }
-}
-
 function ResolveIcidentAction(props: { onResolve: (note: string | undefined) => void }) {
   async function handleSubmit(values: { note: string | undefined }) {
     props.onResolve(values.note);
@@ -118,7 +69,52 @@ function ResolveIcidentAction(props: { onResolve: (note: string | undefined) => 
   );
 }
 
-function UpdateIncidentStatusAction(props: { item: IncidentItem }) {
+function UpdateIncidentStatusAction(props: {
+  item: IncidentItem;
+  onUpdate: (id: string, newStatus: IncidentStatus) => void;
+}) {
+  async function onUpdateIncidentStatus(
+    item: IncidentItem,
+    newStatus: IncidentStatus,
+    note: string | undefined = undefined
+  ) {
+    const preference = getPreferenceValues<Preference>();
+    showToast(Toast.Style.Animated, "Updating...");
+
+    const requestBody = note
+      ? {
+          type: "incident",
+          status: newStatus,
+          note: note,
+        }
+      : {
+          type: "incident",
+          status: newStatus,
+        };
+
+    const pd = axios.create({
+      baseURL: "https://api.pagerduty.com",
+      headers: {
+        Authorization: `Token token=${preference.apiKey}`,
+      },
+    });
+    console.log(`newStatus:${newStatus} note:${note}`);
+    try {
+      const { data: response } = await pd.put<UpdateIncidentResponse>(`/incidents/${item.id}`, {
+        incident: requestBody,
+      });
+      showToast(
+        Toast.Style.Success,
+        `Incident #${response.incident.incident_number} has been ${response.incident.status}.`
+      );
+      showToast(Toast.Style.Success, `Incident tested`);
+      props.onUpdate(item.id, response.incident.status);
+    } catch (error) {
+      console.log(error);
+      showToast(Toast.Style.Failure, error instanceof Error ? error.message : "Failed to update incident.");
+    }
+  }
+
   if (props.item.status === "resolved") {
     return <></>;
   } else if (props.item.status === "acknowledged") {
@@ -152,6 +148,7 @@ function UpdateIncidentStatusAction(props: { item: IncidentItem }) {
 export default function Command() {
   const preference = getPreferenceValues<Preference>();
   const [state, setState] = useState<State>({});
+  const { pop } = useNavigation();
 
   const filterIncidents = useCallback(() => {
     if (state.filter === undefined || state.filter === "all") {
@@ -160,6 +157,21 @@ export default function Command() {
       return state.items?.filter((item) => item.status === state.filter);
     }
   }, [state.items, state.filter]);
+
+  async function updateIncident(id: string, newStatus: IncidentStatus) {
+    const items = state.items ?? [];
+    const index = items.findIndex((i) => i.id === id);
+    if (index < 0) {
+      showToast(Toast.Style.Failure, "Failed to update incident status.");
+      return;
+    }
+
+    items[index].status = newStatus;
+    setState({ items: items });
+
+    await setTimeout(600);
+    pop();
+  }
 
   useEffect(() => {
     async function fetchIncidents() {
@@ -206,32 +218,54 @@ export default function Command() {
       }
     >
       {filterIncidents()?.map((alert) => (
-        <IncidentListItem key={alert.id} alert={alert} />
+        <List.Item
+          key={alert.id}
+          title={`#${alert.incident_number}: ${alert.title}`}
+          accessories={[
+            {
+              text: format(
+                convertToTimeZone(parseISO(alert.created_at), { timeZone: "Asia/Tokyo" }),
+                "yyyy/MM/dd hh:mm:ss"
+              ),
+            },
+          ]}
+          actions={
+            <ActionPanel title={alert.title}>
+              <ActionPanel.Section>
+                <Action.OpenInBrowser
+                  url={alert.html_url}
+                  title="Open Incident in Browser"
+                  shortcut={{ key: "enter", modifiers: [] }}
+                />
+                <Action.CopyToClipboard
+                  content={alert.html_url}
+                  title="Copy Link"
+                  shortcut={{ modifiers: ["cmd", "shift"], key: "c" }}
+                />
+              </ActionPanel.Section>
+              {alert.status === "resolved" ? (
+                <></>
+              ) : (
+                <ActionPanel.Section>
+                  <UpdateIncidentStatusAction item={alert} onUpdate={updateIncident} />
+                </ActionPanel.Section>
+              )}
+            </ActionPanel>
+          }
+          icon={{
+            source: {
+              resolved: Icon.CheckCircle,
+              acknowledged: Icon.Alarm,
+              triggered: Icon.AlarmRinging,
+            }[alert.status],
+            tintColor: {
+              resolved: Color.Green,
+              acknowledged: Color.Yellow,
+              triggered: Color.Red,
+            }[alert.status],
+          }}
+        ></List.Item>
       ))}
     </List>
   );
 }
-
-const IncidentListItem = ({ alert }: { alert: IncidentItem }) => (
-  <List.Item
-    title={`#${alert.incident_number}: ${alert.title}`}
-    accessories={[
-      {
-        text: format(convertToTimeZone(parseISO(alert.created_at), { timeZone: "Asia/Tokyo" }), "yyyy/MM/dd hh:mm:ss"),
-      },
-    ]}
-    actions={<Actions item={alert} />}
-    icon={{
-      source: {
-        resolved: Icon.CheckCircle,
-        acknowledged: Icon.Alarm,
-        triggered: Icon.AlarmRinging,
-      }[alert.status],
-      tintColor: {
-        resolved: Color.Green,
-        acknowledged: Color.Yellow,
-        triggered: Color.Red,
-      }[alert.status],
-    }}
-  ></List.Item>
-);
