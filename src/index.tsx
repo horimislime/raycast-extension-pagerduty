@@ -110,7 +110,6 @@ function UpdateIncidentStatusAction(props: {
         Toast.Style.Success,
         `Incident #${response.incident.incident_number} has been ${response.incident.status}.`
       );
-      showToast(Toast.Style.Success, `Incident tested`);
       props.onUpdate(item.id, response.incident.status);
     } catch (error) {
       console.log(error);
@@ -172,8 +171,10 @@ export default function Command() {
     items[index].status = newStatus;
     setState({ items: items });
 
-    await setTimeout(600);
-    pop();
+    if (newStatus === 'resolved') {
+      await setTimeout(600);
+      pop();
+    }
   }
 
   useEffect(() => {
