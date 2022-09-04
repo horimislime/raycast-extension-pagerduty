@@ -1,11 +1,15 @@
-import { Action, ActionPanel, Color, getPreferenceValues, Icon, List, showToast, Toast } from "@raycast/api";
+import { Action, ActionPanel, Color, Form, getPreferenceValues, Icon, List, showToast, Toast } from "@raycast/api";
 import { useCallback, useEffect, useState } from "react";
 import { format, parseISO } from "date-fns";
-import { convertToTimeZone } from 'date-fns-timezone';
+import { convertToTimeZone } from "date-fns-timezone";
 import axios from "axios";
 
 interface Preference {
   apiKey: string | null | undefined;
+}
+
+interface UpdateIncidentResponse {
+  incident: IncidentItem
 }
 
 interface ListIncidentsResponse {
@@ -36,20 +40,77 @@ function Actions(props: { item: IncidentItem }) {
   return (
     <ActionPanel title={props.item.title}>
       <ActionPanel.Section>
-        <Action.OpenInBrowser 
-          url={props.item.html_url} 
-          title="Open Incident in Browser"
+        <Action.OpenInBrowser url={props.item.html_url} title="Open Incident in Browser" shortcut={{key: 'enter', modifiers: []}} />
+        <Action.CopyToClipboard
+          content={props.item.html_url}
+          title="Copy Link"
+          shortcut={{ modifiers: ["cmd", "shift"], key: "c" }}
         />
-        {props.item.html_url && (
-          <Action.CopyToClipboard
-            content={props.item.html_url}
-            title="Copy Link"
-            shortcut={{ modifiers: ["cmd"], key: "." }}
-          />
-        )}
       </ActionPanel.Section>
+      {props.item.status === "resolved" ? (
+        <></>
+      ) : (
+        <ActionPanel.Section>
+          <UpdateIncidentStatusAction item={props.item} />
+        </ActionPanel.Section>
+      )}
     </ActionPanel>
   );
+}
+
+function onUpdateIncidentStatus(item: IncidentItem, newStatus: IncidentStatus) {
+  const preference = getPreferenceValues<Preference>();
+  const [state, setState] = useState<State>({});
+
+  useEffect(() => {
+    async function updateIncident() {
+      showToast(Toast.Style.Animated, 'Updating...');
+      try {
+        const pd = axios.create({
+          baseURL: "https://api.pagerduty.com",
+          headers: {
+            Authorization: `Token token=${preference.apiKey}`,
+          },
+          params: {
+            type: "incident",
+            status: newStatus,
+          },
+        });
+        const { data: response } = await pd.put<UpdateIncidentResponse>(`/incidents/${item.id}`);
+        const items = state.items ?? [];
+        const index = items.findIndex((i) => i.id === response.incident.id);
+        items[index] = response.incident;
+        setState({ items: items });
+        showToast(Toast.Style.Success, `Incident #${response.incident.incident_number} has been acknowledged.`);
+
+      } catch (error) {
+        setState({
+          error: error instanceof Error ? error : new Error("Something went wrong"),
+        });
+      }
+    }
+
+    updateIncident();
+  }, []);
+
+  if (state.error) {
+    showToast(Toast.Style.Failure, state.error.message);
+  }
+}
+
+function UpdateIncidentStatusAction(props: { item: IncidentItem}) {
+  if (props.item.status === "resolved") {
+    return <></>;
+  } else if (props.item.status === "acknowledged") {
+    return <Action title={"Resolve Incident"} shortcut={{ modifiers: ["cmd", "shift"], key: "r" }} onAction={() => onUpdateIncidentStatus(props.item, 'resolved')} />;
+  } else {
+    return (
+      <>
+        <Action title={"Acknowledge Incident"} shortcut={{ modifiers: ["cmd", "shift"], key: "a" }} onAction={() => onUpdateIncidentStatus(props.item, 'acknowledged')} />
+        <Action title={"Resolve Incident"} shortcut={{ modifiers: ["cmd", "shift"], key: "r" }} onAction={() => onUpdateIncidentStatus(props.item, 'resolved')} />
+      </>
+    );
+  }
 }
 
 export default function Command() {
@@ -57,7 +118,7 @@ export default function Command() {
   const [state, setState] = useState<State>({});
 
   const filterIncidents = useCallback(() => {
-    if (state.filter === undefined || state.filter === 'all') {
+    if (state.filter === undefined || state.filter === "all") {
       return state.items;
     } else {
       return state.items?.filter((item) => item.status === state.filter);
@@ -70,18 +131,17 @@ export default function Command() {
         const pd = axios.create({
           baseURL: "https://api.pagerduty.com",
           headers: {
-            "Authorization": `Token token=${preference.apiKey}`,
+            Authorization: `Token token=${preference.apiKey}`,
           },
           params: {
-            'sort_by': 'created_at:desc'
-          }
+            sort_by: "created_at:desc",
+          },
         });
         const { data: response } = await pd.get<ListIncidentsResponse>("/incidents");
-        setState({items: response.incidents});
+        setState({ items: response.incidents });
       } catch (error) {
         setState({
-          error:
-            error instanceof Error ? error : new Error("Something went wrong"),
+          error: error instanceof Error ? error : new Error("Something went wrong"),
         });
       }
     }
@@ -94,7 +154,7 @@ export default function Command() {
   }
 
   return (
-    <List 
+    <List
       isLoading={!state.items && !state.error}
       searchBarAccessory={
         <List.Dropdown
@@ -107,7 +167,8 @@ export default function Command() {
           <List.Dropdown.Item title="Acknowledged" value={"acknowledged"} />
           <List.Dropdown.Item title="Resolved" value={"resolved"} />
         </List.Dropdown>
-      }>
+      }
+    >
       {filterIncidents()?.map((alert) => (
         <IncidentListItem key={alert.id} alert={alert} />
       ))}
@@ -118,10 +179,12 @@ export default function Command() {
 const IncidentListItem = ({ alert }: { alert: IncidentItem }) => (
   <List.Item
     title={`#${alert.incident_number}: ${alert.title}`}
-    accessories={[{text: format(convertToTimeZone(parseISO(alert.created_at), { timeZone: 'Asia/Tokyo'}), 'yyyy/MM/dd hh:mm:ss')}]}
-    actions={
-      <Actions item={alert}/>
-    }
+    accessories={[
+      {
+        text: format(convertToTimeZone(parseISO(alert.created_at), { timeZone: "Asia/Tokyo" }), "yyyy/MM/dd hh:mm:ss"),
+      },
+    ]}
+    actions={<Actions item={alert} />}
     icon={{
       source: {
         resolved: Icon.CheckCircle,
