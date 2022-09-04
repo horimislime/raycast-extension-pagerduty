@@ -9,7 +9,7 @@ interface Preference {
 }
 
 interface UpdateIncidentResponse {
-  incident: IncidentItem
+  incident: IncidentItem;
 }
 
 interface ListIncidentsResponse {
@@ -40,7 +40,11 @@ function Actions(props: { item: IncidentItem }) {
   return (
     <ActionPanel title={props.item.title}>
       <ActionPanel.Section>
-        <Action.OpenInBrowser url={props.item.html_url} title="Open Incident in Browser" shortcut={{key: 'enter', modifiers: []}} />
+        <Action.OpenInBrowser
+          url={props.item.html_url}
+          title="Open Incident in Browser"
+          shortcut={{ key: "enter", modifiers: [] }}
+        />
         <Action.CopyToClipboard
           content={props.item.html_url}
           title="Copy Link"
@@ -58,95 +62,87 @@ function Actions(props: { item: IncidentItem }) {
   );
 }
 
-function onUpdateIncidentStatus(item: IncidentItem, newStatus: IncidentStatus, note: string | undefined = undefined) {
+async function onUpdateIncidentStatus(
+  item: IncidentItem,
+  newStatus: IncidentStatus,
+  note: string | undefined = undefined
+) {
   const preference = getPreferenceValues<Preference>();
-  const [state, setState] = useState<State>({});
+  showToast(Toast.Style.Animated, "Updating...");
 
-  useEffect(() => {
-    async function updateIncident() {
-      showToast(Toast.Style.Animated, 'Updating...');
-      try {
-        const pd = axios.create({
-          baseURL: "https://api.pagerduty.com",
-          headers: {
-            Authorization: `Token token=${preference.apiKey}`,
-          },
-          params: note? {
-            type: "incident",
-            status: newStatus,
-            note: note,
-          } : {
-            type: "incident",
-            status: newStatus,
-          },
-        });
-        console.log(`newStatus:${newStatus} note:${note}`)
-        const { data: response } = await pd.put<UpdateIncidentResponse>(`/incidents/${item.id}`);
-        const items = state.items ?? [];
-        const index = items.findIndex((i) => i.id === response.incident.id);
-        items[index] = response.incident;
-        setState({ items: items });
-        showToast(Toast.Style.Success, `Incident #${response.incident.incident_number} has been acknowledged.`);
-
-      } catch (error) {
-        setState({
-          error: error instanceof Error ? error : new Error("Something went wrong"),
-        });
-      }
+  const requestBody = note
+  ? {
+      type: "incident",
+      status: newStatus,
+      note: note,
     }
+  : {
+      type: "incident",
+      status: newStatus,
+    };
 
-    updateIncident();
-  }, []);
-
-  if (state.error) {
-    showToast(Toast.Style.Failure, state.error.message);
+  const pd = axios.create({
+    baseURL: "https://api.pagerduty.com",
+    headers: {
+      Authorization: `Token token=${preference.apiKey}`,
+    }
+  });
+  console.log(`newStatus:${newStatus} note:${note}`);
+  try {
+    const { data: response } = await pd.put<UpdateIncidentResponse>(`/incidents/${item.id}`, { incident: requestBody });
+    showToast(Toast.Style.Success, `Incident #${response.incident.incident_number} has been ${response.incident.status}.`);
+  } catch (error) {
+    console.log(error);
+    showToast(Toast.Style.Failure, error instanceof Error ? error.message : "Failed to update incident.");
   }
 }
 
-function ResolveIcidentAction(props: {onResolve: (note: string | undefined) => void}) {
-  async function handleSubmit(values: {note: string | undefined}) {
+function ResolveIcidentAction(props: { onResolve: (note: string | undefined) => void }) {
+  async function handleSubmit(values: { note: string | undefined }) {
     props.onResolve(values.note);
   }
   return (
-    <Form actions={
-      <ActionPanel>
-        <Action.SubmitForm icon={Icon.Text} title="Resolve Incident" onSubmit={handleSubmit}/>
-      </ActionPanel>
-    }>
+    <Form
+      actions={
+        <ActionPanel>
+          <Action.SubmitForm icon={Icon.Text} title="Resolve Incident" onSubmit={handleSubmit} />
+        </ActionPanel>
+      }
+    >
       <Form.TextArea
         id="note"
         title="Resolution Note"
-        placeholder="Put some note to describe what you did to resolve this incident."
+        placeholder="(Optional) Put some note to describe what you did to resolve this incident."
       />
     </Form>
-  )
+  );
 }
 
-function UpdateIncidentStatusAction(props: { item: IncidentItem}) {
+function UpdateIncidentStatusAction(props: { item: IncidentItem }) {
   if (props.item.status === "resolved") {
     return <></>;
   } else if (props.item.status === "acknowledged") {
     return (
-      <Action.Push 
-        key={props.item.id} 
-        title={"Resolve Incident"} 
-        shortcut={{ modifiers: ["cmd", "shift"], key: "r" }} 
-        target={<ResolveIcidentAction onResolve={(note) => onUpdateIncidentStatus(props.item, 'resolved', note)} />} 
+      <Action.Push
+        key={props.item.id}
+        title={"Resolve Incident"}
+        shortcut={{ modifiers: ["cmd", "shift"], key: "r" }}
+        target={<ResolveIcidentAction onResolve={(note) => onUpdateIncidentStatus(props.item, "resolved", note)} />}
       />
     );
   } else {
     return (
       <>
-        <Action 
-          title={"Acknowledge Incident"} 
-          shortcut={{ modifiers: ["cmd", "shift"], key: "a" }} 
-          onAction={() => onUpdateIncidentStatus(props.item, 'acknowledged')} 
+        <Action
+          title={"Acknowledge Incident"}
+          shortcut={{ modifiers: ["cmd", "shift"], key: "a" }}
+          onAction={() => onUpdateIncidentStatus(props.item, "acknowledged")}
         />
-        <Action.Push 
-          key={props.item.id} 
-          title={"Resolve Incident"} 
-          shortcut={{ modifiers: ["cmd", "shift"], key: "r" }} 
-          target={<ResolveIcidentAction onResolve={(note) => onUpdateIncidentStatus(props.item, 'resolved', note)} />} 
+        <Action.Push
+          key={props.item.id}
+          title={"Resolve Incident"}
+          shortcut={{ modifiers: ["cmd", "shift"], key: "r" }}
+          target={<ResolveIcidentAction onResolve={(note) => onUpdateIncidentStatus(props.item, "resolved", note)} />}
         />
       </>
     );
