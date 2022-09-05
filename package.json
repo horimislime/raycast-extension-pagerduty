@@ -14,7 +14,7 @@
     {
       "name": "index",
       "title": "View PagerDuty Incidents",
-      "description": "List incidents",
+      "description": "Explore and Update Recent Incidents",
       "mode": "view"
     }
   ],
