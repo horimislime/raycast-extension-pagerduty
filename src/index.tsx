@@ -226,23 +226,22 @@ function UpdateIncidentStatusAction(props: {
   ) {
     showToast(Toast.Style.Animated, "Updating...");
 
-    const requestBody = note
-      ? {
-          type: "incident",
-          status: newStatus,
-          resolution: note,
-        }
-      : {
-          type: "incident",
-          status: newStatus,
-        };
-
     try {
       const { data: me } = await pagerDutyClient.get<GetMeResponse>("/users/me");
+      if (note) {
+        await pagerDutyClient.post(
+          `/incidents/${item.id}/notes`,
+          { note: { content: note } },
+          { headers: { from: me.user.email } }
+        );
+      }
       const { data: updated } = await pagerDutyClient.put<UpdateIncidentResponse>(
         `/incidents/${item.id}`,
         {
-          incident: requestBody,
+          incident: {
+            type: "incident",
+            status: newStatus,
+          },
         },
         { headers: { from: me.user.email } }
       );
